@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Environment / secrets
+.env
+.env.*
+
+!.env.example
+
+# Database
+db.sqlite3
+*.sqlite3
+
+# Django
+staticfiles/
+media/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Scratch & internal
+scratch/
+.gemini/
+.github/
+
