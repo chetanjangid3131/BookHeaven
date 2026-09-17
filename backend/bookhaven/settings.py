@@ -155,6 +155,9 @@ USE_TZ = True
 # ─── Static & Media Files (WhiteNoise) ─────────────────────────────────────────
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR.parent / 'frontend']
+WHITENOISE_ROOT = BASE_DIR.parent / 'frontend'
+WHITENOISE_INDEX_FILE = True
 
 STORAGES = {
     "default": {
