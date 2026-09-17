@@ -6,6 +6,11 @@ from rest_framework.permissions import AllowAny
 from .models import Book, TrendingBook, Offer
 from .serializers import BookSerializer, TrendingBookSerializer, OfferSerializer
 
+# ─── SINGLE SOURCE OF TRUTH ───────────────────────────────────────────────
+# These views directly query the MySQL database. There is NO caching (e.g. cache_page)
+# on these book read endpoints to ensure that the book website always reflects
+# real-time updates (stock, price, title) made in the admin dashboard.
+# ─────────────────────────────────────────────────────────────────────────
 
 class BookListView(ListAPIView):
     """GET /api/books/ — List all books with optional filters."""

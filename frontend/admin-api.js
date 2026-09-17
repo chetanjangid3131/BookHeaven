@@ -13,7 +13,8 @@ const BookHavenAdmin = (() => {
     if (window.BOOKHAVEN_API_BASE) return window.BOOKHAVEN_API_BASE.replace(/\/+$/, '');
     if (window.BOOKHAVEN_API_URL) return window.BOOKHAVEN_API_URL.replace(/\/+$/, '');
     if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-      return 'http://127.0.0.1:8001/api';
+      // Backend runs on port 8000 by default (python manage.py runserver)
+      return 'http://127.0.0.1:8000/api';
     }
     return 'https://bookhaven-website.onrender.com/api';
   };
@@ -140,7 +141,9 @@ const BookHavenAdmin = (() => {
         err?.message || body?.detail || `Request failed (${res.status})`,
         err?.code || (res.status === 403 ? 'PERMISSION_DENIED' : 'REQUEST_FAILED'),
         res.status,
-        err?.details
+        // DRF field errors arrive as the body itself ({"field": ["msg"]}),
+        // not nested under body.error. Fall through to body when no err wrapper.
+        err?.details || (!err && body && typeof body === 'object' ? body : undefined),
       );
     }
     return body;

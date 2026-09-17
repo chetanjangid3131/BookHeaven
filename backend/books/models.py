@@ -18,7 +18,10 @@ class Book(models.Model):
     author = models.CharField(max_length=200)
     price = models.PositiveIntegerField(help_text='Price in INR (paise-free)')
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
-    image_url = models.URLField(max_length=500, blank=True)
+    # CharField instead of URLField: cover images are stored as relative asset
+    # paths (e.g. "assets/book-1-sapiens.jpg") not full HTTP URLs, so URLField's
+    # scheme+domain validation would reject every existing record.
+    image_url = models.CharField(max_length=500, blank=True)
     rating = models.DecimalField(max_digits=3, decimal_places=1, default=4.0)
     reviews_count = models.PositiveIntegerField(default=0)
     is_ebook = models.BooleanField(default=False)

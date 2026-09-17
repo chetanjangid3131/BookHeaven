@@ -6,6 +6,9 @@ class BookSerializer(serializers.ModelSerializer):
     ebook_price = serializers.ReadOnlyField()
     user_rating = serializers.SerializerMethodField()
     total_reviews = serializers.SerializerMethodField()
+    # Explicit CharField: image_url stores relative asset paths ("assets/book-N.jpg")
+    # as well as full URLs. Letting DRF auto-derive from URLField would reject them.
+    image_url = serializers.CharField(max_length=500, allow_blank=True, required=False)
 
     class Meta:
         model = Book
@@ -13,8 +16,12 @@ class BookSerializer(serializers.ModelSerializer):
             'id', 'title', 'author', 'price', 'ebook_price',
             'category', 'image_url', 'rating', 'reviews_count',
             'is_ebook', 'badge', 'description', 'isbn',
+            'stock', 'is_active',
             'user_rating', 'total_reviews',
         )
+        # stock and is_active are writable so the admin dashboard can update
+        # inventory and visibility; ebook_price, user_rating, total_reviews
+        # are read-only computed properties.
 
     def get_user_rating(self, obj):
         """Aggregate rating including user-submitted reviews."""

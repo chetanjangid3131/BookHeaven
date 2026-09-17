@@ -4,6 +4,22 @@ This guide explains how to connect any separate frontend (React, Vite, Next.js, 
 
 ---
 
+## ⚠️ Single Source of Truth — Read This First
+
+**All book data on the frontend is owned exclusively by `api.js`.** The functions `fetchAndRenderBooks`, `fetchAndRenderTrending`, `fetchAndRenderOffers`, and `fetchAndRenderEbooks` in `api.js` are the **only** places that fetch book data. They store results in:
+
+- `window.books` — full catalog (always fresh from `/api/books/`)
+- `window.trendingBooks` — trending list (from `/api/books/trending/`)
+- `window.offers` — promotional offers (from `/api/books/offers/`)
+
+Every UI surface (`script.js` render functions, search modal, quick view, filter pills, category cards, bestsellers, new arrivals, eBooks section) reads **only** from these `window.*` objects — never from a local static array.
+
+**Golden rule for future features:** If you need to display books anywhere, read `window.books`. If you need to trigger a fetch, call `window.fetchAndRenderBooks(category)`. Do **not** introduce a new local books array or a separate `fetch('/api/books/')` call.
+
+All requests use `cache: 'no-store'` so every load reflects the live database immediately — no hard refresh needed after an admin edit.
+
+---
+
 ## 1. Configuring the API Base URL
 
 In your frontend application, configure the API base URL using environment variables or a configuration constant:

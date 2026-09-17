@@ -1,22 +1,28 @@
 /**
  * BookHaven — Django REST API Integration Layer
  * ================================================
- * This file patches the existing script.js functions with real API calls.
- * Loaded AFTER script.js so overrides take effect cleanly.
+ * SINGLE SOURCE OF TRUTH: This file is the exclusive owner of all book
+ * data fetching. window.books, window.trendingBooks, and window.offers
+ * are populated ONLY here, always with cache:'no-store' to guarantee
+ * every page load reflects the latest state of the live DRF database.
  *
- * Authentication: Clerk (https://clerk.com) — replaces custom JWT forms.
- * Django backend must be running at: http://127.0.0.1:8000
+ * DO NOT read from a local static array in script.js as a fallback.
+ * If this fetch fails, show an empty/error state — not stale data.
+ *
+ * Backend: Django REST Framework at http://127.0.0.1:8000
+ * Auth: Clerk (https://clerk.com) with simplejwt backend tokens.
  */
 
 (function () {
   'use strict';
 
-  // ─── Config ─────────────────────────────────────────────────────────────────
+  // ─── Config ───────────────────────────────────────────────────────────────────────────
   const getApiBase = () => {
     if (window.BOOKHAVEN_API_BASE) return window.BOOKHAVEN_API_BASE.replace(/\/+$/, '');
     if (window.BOOKHAVEN_API_URL) return window.BOOKHAVEN_API_URL.replace(/\/+$/, '');
     if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-      return 'http://127.0.0.1:8001/api';
+      // Backend runs on port 8000 by default (python manage.py runserver)
+      return 'http://127.0.0.1:8000/api';
     }
     return 'https://bookhaven-website.onrender.com/api';
   };
@@ -46,6 +52,10 @@
       if (token) headers['Authorization'] = `Bearer ${token}`;
     }
     const opts = { method, headers, credentials: 'include' };
+    // Never serve stale book data from the browser HTTP cache.
+    // Without this, a cached /api/books/ response would outlive an admin
+    // update and the book website would keep showing the old price/title.
+    if (method === 'GET') opts.cache = 'no-store';
     if (body) opts.body = JSON.stringify(body);
 
     try {
@@ -53,23 +63,6 @@
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     } catch (err) {
-      if (API_BASE.includes(':8001')) {
-        try {
-          const altBase = API_BASE.replace(':8001', ':8000');
-          const res = await fetch(`${altBase}${path}`, opts);
-          const data = await res.json().catch(() => ({}));
-          API_BASE = altBase;
-          return { ok: res.ok, status: res.status, data };
-        } catch (_) {}
-      } else if (API_BASE.includes(':8000')) {
-        try {
-          const altBase = API_BASE.replace(':8000', ':8001');
-          const res = await fetch(`${altBase}${path}`, opts);
-          const data = await res.json().catch(() => ({}));
-          API_BASE = altBase;
-          return { ok: res.ok, status: res.status, data };
-        } catch (_) {}
-      }
       console.warn('[BookHaven API] Network error:', err.message);
       return { ok: false, status: 0, data: { detail: 'Could not connect to server.' } };
     }
@@ -292,6 +285,23 @@
 
   // ─── Books override ─────────────────────────────────────────────────────────
 
+  window.BookService = {
+    async fetchAll(params = {}) {
+      const qs = new URLSearchParams(params).toString();
+      const url = `/books/${qs ? '?' + qs : ''}`;
+      const { ok, data } = await apiRequest('GET', url);
+      const bookList = ok ? (Array.isArray(data) ? data : (data.results || [])) : [];
+      return bookList.map(mapApiBook);
+    },
+    async fetchOne(id) {
+      const { ok, data } = await apiRequest('GET', `/books/${id}/`);
+      return ok ? mapApiBook(data) : null;
+    }
+  };
+
+  // Expose so script.js can trigger a live fetch-and-render.
+  window.fetchAndRenderBooks = fetchAndRenderBooks;
+
   async function fetchAndRenderBooks(filter = 'all') {
     const container = document.getElementById('books-container');
     if (!container) return;
@@ -303,57 +313,30 @@
       url += `?category=${encodeURIComponent(filter)}`;
     }
 
-    container.innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-secondary)">📚 Loading books…</div>';
+    container.innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-secondary)">\ud83d\udcda Loading books\u2026</div>';
 
-    const { ok, data } = await apiRequest('GET', url);
-    // DRF can return { results: [...] } (paginated) or a plain array
-    const bookList = ok ? (Array.isArray(data) ? data : (data.results || [])) : [];
-    if (ok && bookList.length > 0) {
-      // Patch global `books` array so existing script.js functions still work
-      window.books = bookList.map(mapApiBook);
-      container.innerHTML = window.books.map(book => buildBookCard(book)).join('');
+    const params = {};
+    if (filter === 'eBook') params.ebook = true;
+    else if (filter !== 'all') params.category = filter;
+
+    const books = await window.BookService.fetchAll(params);
+    if (books && books.length > 0) {
+      container.innerHTML = books.map(book => buildBookCard(book)).join('');
       attachCardEvents(container);
+      // Keep all other homepage sections in sync with the same fresh data.
+      if (typeof renderBestsellers === 'function') renderBestsellers('all');
+      if (typeof renderNewArrivals === 'function') renderNewArrivals();
+      if (typeof observeBookCards === 'function') observeBookCards();
     } else {
-      // Empty result from API or Network error — fall through to static data
-      // Fallback: use static data already rendered by script.js
-      generateBooks(filter);
+      // API returned empty or error — show a clear message, never fall back to
+      // stale static data (which would show wrong prices and missing new books).
+      container.innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-secondary)">\ud83d\udcda Could not load books. Please check your connection and refresh.</div>';
     }
   }
 
-  const LOCAL_BOOK_COVERS = {
-    1: 'assets/book-1-sapiens.jpg',
-    2: 'assets/book-2-atomic-habits.jpg',
-    3: 'assets/book-3-1984.jpg',
-    4: 'assets/harry-potter.jpg',
-    5: 'assets/book-5-the-alchemist.jpg',
-    6: 'assets/book-6-psychology-of-money.jpg',
-    7: 'assets/book-7-the-great-gatsby.jpg',
-    8: 'assets/book-8-deep-work.jpg',
-    9: 'assets/book-9-the-hobbit.jpg',
-    10: 'assets/book-10-dune.jpg',
-    11: 'assets/book-11-thinking-fast-and-slow.jpg',
-    12: 'assets/book-12-to-kill-a-mockingbird.jpg',
-    13: 'assets/book-13-the-da-vinci-code.jpg',
-    14: 'assets/book-14-gone-girl.jpg',
-    15: 'assets/book-15-the-martian.jpg',
-    16: 'assets/book-16-zero-to-one.jpg',
-    17: 'assets/book-17-the-lean-startup.jpg',
-    18: 'assets/book-18-steve-jobs.jpg',
-    19: 'assets/book-19-elon-musk.jpg',
-    20: 'assets/book-20-brave-new-world.jpg',
-    21: 'assets/book-21-the-girl-with-the-dragon-tattoo.jpg',
-    22: 'assets/book-22-enders-game.jpg',
-    23: 'assets/book-23-the-7-habits.jpg',
-    24: 'assets/book-24-good-to-great.jpg',
-    25: 'assets/book-25-the-power-of-now.jpg',
-    26: 'assets/book-26-born-a-crime.jpg',
-    27: 'assets/book-27-a-brief-history-of-time.jpg',
-    28: 'assets/book-28-the-silent-patient.jpg',
-  };
-
   // Map Django API fields to the shape script.js expects
   function mapApiBook(b) {
-    let coverImg = b.image_url || LOCAL_BOOK_COVERS[b.id];
+    let coverImg = b.image_url;
     if (!coverImg && (b.id === 4 || (b.title && b.title.toLowerCase().includes('harry potter')))) {
       coverImg = 'assets/harry-potter.jpg';
     }
@@ -406,16 +389,8 @@
       bookId: t.book.id,
       weeklyChange: t.weekly_change,
       hot: t.is_hot,
+      book: mapApiBook(t.book) // Save the mapped book since we no longer sync to window.books
     }));
-
-    // Ensure all trending books exist in window.books (which is now always an array)
-    if (!Array.isArray(window.books)) window.books = [];
-    data.forEach(t => {
-      const apiBook = mapApiBook(t.book);
-      if (!window.books.some(b => b.id === apiBook.id)) {
-        window.books.push(apiBook);
-      }
-    });
 
     renderTrending();
   }
@@ -518,9 +493,8 @@
     const qty = Math.max(1, parseInt(quantity, 10) || 1);
     const cartId = `${bookId}-${format}`;
     if (!currentUser || !getToken()) {
-      // Not logged in — fall back to script.js local cart behavior
-      const allBooks = window.books || (typeof books !== 'undefined' ? books : []);
-      const book = allBooks.find(b => b.id == bookId);
+      // Not logged in — use API to fetch fresh book details
+      const book = await window.BookService.fetchOne(bookId);
       if (!book) return;
       const existing = cart.find(c => c.cartId === cartId || (c.id == bookId && c.format === format));
       if (existing) {

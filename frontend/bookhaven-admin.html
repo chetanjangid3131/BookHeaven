@@ -363,16 +363,7 @@
   const adminToken = null; // TODO: wire up real admin auth token
 
   const state = {
-    books: [
-      { id: 'b1', title: 'The Alchemist', author: 'Paulo Coelho', price: 349, stock: 42 },
-      { id: 'b2', title: 'Sapiens', author: 'Yuval Noah Harari', price: 499, stock: 6 },
-      { id: 'b3', title: 'Atomic Habits', author: 'James Clear', price: 399, stock: 0 },
-      { id: 'b4', title: '1984', author: 'George Orwell', price: 299, stock: 25 },
-      { id: 'b5', title: 'The Silent Patient', author: 'Alex Michaelides', price: 349, stock: 3 },
-      { id: 'b6', title: 'Ikigai', author: 'Héctor García', price: 279, stock: 18 },
-      { id: 'b7', title: 'Educated', author: 'Tara Westover', price: 399, stock: 30 },
-      { id: 'b8', title: 'Pride and Prejudice', author: 'Jane Austen', price: 199, stock: 55 },
-    ],
+    books: [], // Removed hardcoded mock data to prevent stale states
     orders: [
       { id: 'BH-10231', customer: 'Ananya Rao', date: '2026-09-11', items: 2, total: 848, status: 'Pending' },
       { id: 'BH-10230', customer: 'Rohan Mehta', date: '2026-09-11', items: 1, total: 349, status: 'Processing' },

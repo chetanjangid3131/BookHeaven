@@ -92,62 +92,21 @@ function generateEditorialCoverSvg(title, author, category) {
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.trim());
 }
 
-// ---- Data ----
-const books = [
-  { title: "Sapiens", author: "Yuval Noah Harari", price: 599, id: 1, category: "Classics", image: "assets/book-1-sapiens.jpg", rating: 4.8, reviews: 15234, ebook: true, badge: "Bestseller" },
-  { title: "Atomic Habits", author: "James Clear", price: 650, id: 2, category: "Self-Help", image: "assets/book-2-atomic-habits.jpg", rating: 4.9, reviews: 23451, ebook: true, badge: "Bestseller" },
-  { title: "1984", author: "George Orwell", price: 399, id: 3, category: "Classics", image: "assets/book-3-1984.jpg", rating: 4.7, reviews: 18923, ebook: true, badge: "Classic" },
-  { title: "Harry Potter & The Sorcerer's Stone", author: "J.K. Rowling", price: 399, id: 4, category: "Fiction", image: "assets/harry-potter.jpg", rating: 4.9, reviews: 45678, ebook: false, badge: "Bestseller" },
-  { title: "The Alchemist", author: "Paulo Coelho", price: 350, id: 5, category: "Fiction", image: "assets/book-5-the-alchemist.jpg", rating: 4.6, reviews: 12345, ebook: true, badge: "Trending" },
-  { title: "Psychology of Money", author: "Morgan Housel", price: 499, id: 6, category: "Self-Help", image: "assets/book-6-psychology-of-money.jpg", rating: 4.8, reviews: 9876, ebook: true, badge: "Hot" },
-  { title: "The Great Gatsby", author: "F. Scott Fitzgerald", price: 275, id: 7, category: "Classics", image: "assets/book-7-the-great-gatsby.jpg", rating: 4.5, reviews: 8765, ebook: true, badge: "Classic" },
-  { title: "Deep Work", author: "Cal Newport", price: 525, id: 8, category: "Self-Help", image: "assets/book-8-deep-work.jpg", rating: 4.7, reviews: 7654, ebook: false, badge: "Bestseller" },
-  { title: "The Hobbit", author: "J.R.R. Tolkien", price: 450, id: 9, category: "Fiction", image: "assets/book-9-the-hobbit.jpg", rating: 4.8, reviews: 21345, ebook: false, badge: "Classic" },
-  { title: "Dune", author: "Frank Herbert", price: 599, id: 10, category: "Sci-Fi", image: "assets/book-10-dune.jpg", rating: 4.8, reviews: 31200, ebook: true, badge: "Epic" },
-  { title: "Thinking, Fast and Slow", author: "Daniel Kahneman", price: 549, id: 11, category: "Self-Help", image: "assets/book-11-thinking-fast-and-slow.jpg", rating: 4.6, reviews: 14500, ebook: true, badge: "Bestseller" },
-  { title: "To Kill a Mockingbird", author: "Harper Lee", price: 325, id: 12, category: "Classics", image: "assets/book-12-to-kill-a-mockingbird.jpg", rating: 4.7, reviews: 22100, ebook: true, badge: "Classic" },
-  { title: "The Da Vinci Code", author: "Dan Brown", price: 449, id: 13, category: "Mystery", image: "assets/book-13-the-da-vinci-code.jpg", rating: 4.4, reviews: 19800, ebook: true, badge: "Thriller" },
-  { title: "Gone Girl", author: "Gillian Flynn", price: 399, id: 14, category: "Mystery", image: "assets/book-14-gone-girl.jpg", rating: 4.3, reviews: 16300, ebook: true, badge: "Bestseller" },
-  { title: "The Martian", author: "Andy Weir", price: 499, id: 15, category: "Sci-Fi", image: "assets/book-15-the-martian.jpg", rating: 4.7, reviews: 18700, ebook: true, badge: "Award Winner" },
-  { title: "Zero to One", author: "Peter Thiel", price: 575, id: 16, category: "Business", image: "assets/book-16-zero-to-one.jpg", rating: 4.5, reviews: 11200, ebook: true, badge: "Must Read" },
-  { title: "The Lean Startup", author: "Eric Ries", price: 525, id: 17, category: "Business", image: "assets/book-17-the-lean-startup.jpg", rating: 4.4, reviews: 9800, ebook: false, badge: "Startup Bible" },
-  { title: "Steve Jobs", author: "Walter Isaacson", price: 699, id: 18, category: "Biography", image: "assets/book-18-steve-jobs.jpg", rating: 4.6, reviews: 17600, ebook: true, badge: "Inspiring" },
-  { title: "Elon Musk", author: "Walter Isaacson", price: 749, id: 19, category: "Biography", image: "assets/book-19-elon-musk.jpg", rating: 4.5, reviews: 8400, ebook: true, badge: "New" },
-  { title: "Brave New World", author: "Aldous Huxley", price: 349, id: 20, category: "Classics", image: "assets/book-20-brave-new-world.jpg", rating: 4.4, reviews: 13200, ebook: true, badge: "Classic" },
-  { title: "The Girl with the Dragon Tattoo", author: "Stieg Larsson", price: 429, id: 21, category: "Mystery", image: "assets/book-21-the-girl-with-the-dragon-tattoo.jpg", rating: 4.5, reviews: 15700, ebook: false, badge: "Thriller" },
-  { title: "Ender's Game", author: "Orson Scott Card", price: 399, id: 22, category: "Sci-Fi", image: "assets/book-22-enders-game.jpg", rating: 4.6, reviews: 12900, ebook: true, badge: "Sci-Fi Classic" },
-  { title: "The 7 Habits of Highly Effective People", author: "Stephen R. Covey", price: 499, id: 23, category: "Self-Help", image: "assets/book-23-the-7-habits.jpg", rating: 4.7, reviews: 20100, ebook: true, badge: "Life Changer" },
-  { title: "Good to Great", author: "Jim Collins", price: 549, id: 24, category: "Business", image: "assets/book-24-good-to-great.jpg", rating: 4.5, reviews: 10300, ebook: false, badge: "Business" },
-  { title: "The Power of Now", author: "Eckhart Tolle", price: 399, id: 25, category: "Self-Help", image: "assets/book-25-the-power-of-now.jpg", rating: 4.4, reviews: 11800, ebook: true, badge: "Mindfulness" },
-  { title: "Born a Crime", author: "Trevor Noah", price: 449, id: 26, category: "Biography", image: "assets/book-26-born-a-crime.jpg", rating: 4.8, reviews: 14200, ebook: true, badge: "Memoir" },
-  { title: "A Brief History of Time", author: "Stephen Hawking", price: 375, id: 27, category: "Sci-Fi", image: "assets/book-27-a-brief-history-of-time.jpg", rating: 4.5, reviews: 16500, ebook: true, badge: "Classic" },
-  { title: "The Silent Patient", author: "Alex Michaelides", price: 425, id: 28, category: "Mystery", image: "assets/book-28-the-silent-patient.jpg", rating: 4.5, reviews: 13700, ebook: true, badge: "Thriller" }
-];
+// ─── SINGLE SOURCE OF TRUTH ────────────────────────────────────────────────────
+// window.books, window.trendingBooks, and window.offers are the ONE source of
+// truth for all book data in this application. They are populated exclusively
+// by api.js (fetchAndRenderBooks / fetchAndRenderTrending / fetchAndRenderOffers)
+// which always fetches fresh from the live DRF API with cache:'no-store'.
+//
+// DO NOT add a static fallback array here. Showing stale hardcoded prices/titles
+// is worse than showing a loading state — it will silently diverge from the DB.
+// If the backend is unreachable, api.js shows an appropriate empty/loading state.
+// ────────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 
-// Expose books and cart globally to guarantee availability for api.js and modals
-window.books = books;
-
-// Trending books data (top 8 by popularity)
-const trendingBooks = [
-  { rank: 1, bookId: 2, weeklyChange: '+12%', hot: true },
-  { rank: 2, bookId: 1, weeklyChange: '+8%', hot: true },
-  { rank: 3, bookId: 28, weeklyChange: '+22%', hot: true },
-  { rank: 4, bookId: 4, weeklyChange: '+5%', hot: false },
-  { rank: 5, bookId: 10, weeklyChange: '+18%', hot: true },
-  { rank: 6, bookId: 6, weeklyChange: '+9%', hot: false },
-  { rank: 7, bookId: 19, weeklyChange: '+31%', hot: true },
-  { rank: 8, bookId: 26, weeklyChange: '+14%', hot: true }
-];
-
-// Offers data
-const offers = [
-  { gradient: 'offer-card-1', discount: '30% OFF', title: 'Classics Collection', desc: 'On all classic literature books. Perfect for bookworms!', code: 'CLASSIC30', expiry: '3 days', hours: 71 },
-  { gradient: 'offer-card-2', discount: '₹150 OFF', title: 'Self-Help Bundle', desc: 'Buy any 2 self-help books and get ₹150 off your total.', code: 'SELFHELP150', expiry: '1 day', hours: 23 },
-  { gradient: 'offer-card-3', discount: '25% OFF', title: 'eBook Special', desc: 'All eBooks at 25% off — read instantly on any device!', code: 'EBOOK25', expiry: '5 days', hours: 119 },
-  { gradient: 'offer-card-4', discount: 'FREE', title: 'Delivery Offer', desc: 'Free delivery on all orders above ₹499. No code needed.', code: 'AUTO APPLIED', expiry: 'Always', hours: null },
-  { gradient: 'offer-card-5', discount: '40% OFF', title: 'New User Deal', desc: 'First order? Get a massive 40% off any single book!', code: 'NEWREADER40', expiry: '7 days', hours: 167 },
-  { gradient: 'offer-card-6', discount: '₹200 OFF', title: 'Weekend Sale', desc: 'This weekend only — spend ₹800 or more and save ₹200!', code: 'WEEKEND200', expiry: '2 days', hours: 47 }
-];
+// (static trendingBooks and offers arrays removed — see SINGLE SOURCE OF TRUTH
+// comment above. Live data is fetched by api.js and stored in window.trendingBooks
+// and window.offers respectively.)
 
 let cart = [];
 window.cart = cart;
@@ -592,16 +551,13 @@ function closeUserMenu() {
 }
 
 // ---- Books ----
+// generateBooks is kept as a lightweight render-only helper that reads
+// window.books (set by api.js). It does NOT fetch; use fetchAndRenderBooks()
+// (exposed on window by api.js) for any path that needs a live refresh.
 function generateBooks(filter = 'all') {
-  const container = document.getElementById('books-container');
-  if (!container) return;
-  let filtered;
-  if (filter === 'eBook') {
-    filtered = books.filter(b => b.ebook);
-  } else {
-    filtered = filter === 'all' ? books : books.filter(b => b.category === filter);
+  if (window.fetchAndRenderBooks) {
+    window.fetchAndRenderBooks(filter);
   }
-  container.innerHTML = filtered.map(book => buildBookCard(book)).join('');
 }
 
 function buildBookCard(book) {
@@ -653,11 +609,13 @@ function buildBookCard(book) {
 }
 
 // ---- Trending (Readers Are Loving) ----
+// Reads window.trendingBooks and window.books — both set by api.js.
 function renderTrending() {
   const container = document.getElementById('trending-container');
   if (!container) return;
-  container.innerHTML = trendingBooks.map(t => {
-    const book = books.find(b => b.id === t.bookId);
+  const trendingData = window.trendingBooks || [];
+  container.innerHTML = trendingData.map(t => {
+    const book = t.book;
     if (!book) return '';
     const rankFormatted = String(t.rank).padStart(2, '0');
     const fallbackSvg = generateEditorialCoverSvg(book.title, book.author, book.category);
@@ -684,10 +642,13 @@ function renderTrending() {
 }
 
 // ---- Offers ----
+// Reads window.offers — set by api.js after fetching /api/books/offers/.
 const offerTimers = {};
 function renderOffers() {
   const container = document.getElementById('offers-container');
   if (!container) return;
+  const offers = window.offers || [];
+  if (offers.length === 0) return;
   container.innerHTML = offers.map((o, idx) => {
     const timerId = 'timer-' + idx;
     const isAuto = o.hours === null;
@@ -805,16 +766,16 @@ function updateTimer(idx) {
 }
 
 // ---- eBooks section ----
+// Reads window.books — set by api.js.
 function renderEbooks() {
   const container = document.getElementById('ebooks-container');
   if (!container) return;
-  const ebookList = books.filter(b => b.ebook);
+  const ebookList = (window.books || []).filter(b => b.ebook);
   container.innerHTML = ebookList.map(book => buildBookCard(book)).join('');
 }
 
 function addToCart(id, format = 'physical', quantity = 1) {
-  const sourceBooks = Array.isArray(window.books) && window.books.length > 0 ? window.books : books;
-  const book = sourceBooks.find(b => b.id === Number(id));
+  const book = (window.books || []).find(b => b.id === Number(id));
   if (!book) return;
 
   const qty = Math.max(1, Number(quantity) || 1);
@@ -1473,8 +1434,8 @@ function afterPaymentSuccess() {
 }
 
 // ---- eBook PDF Download ----
-function downloadEbookPDF(bookId) {
-  const book = books.find(b => b.id === Number(bookId));
+async function downloadEbookPDF(bookId) {
+  const book = await window.BookService.fetchOne(bookId);
   if (!book) return showNotification('Book not found!', 'error');
 
   // Check jsPDF loaded
@@ -2420,8 +2381,8 @@ function submitReview(bookId) {
   const text = ta ? ta.value.trim().slice(0, 500) : ''; // truncate to max
   if (currentReviewData.rating === 0) { showNotification('Please select a star rating!', 'error'); return; }
 
-  // Validate bookId is a known book
-  const validBook = books.find(b => b.id === bookId);
+  // We rely on the backend to validate bookId.
+  const validBook = true;
   if (!validBook) { showNotification('Invalid book reference', 'error'); return; }
 
   const userName = currentUser ? currentUser.name.slice(0, 60) : 'Anonymous';
@@ -2582,9 +2543,9 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Show all reviews for a book in the review modal
-function showAllReviews(bookId) {
+async function showAllReviews(bookId) {
   const bid = Number(bookId);
-  const book = books.find(b => b.id === bid);
+  const book = await window.BookService.fetchOne(bid);
   const allReviews = reviewsDB[bid] || [];
   if (!allReviews.length || !book) return;
 
@@ -2643,28 +2604,28 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
 
-  // Render books, trending, offers, ebooks
-  generateBooks();
-  observeBookCards();
-  renderTrending();
-  renderOffers();
-  renderEbooks();
+  // Books rendering is now exclusively owned by api.js (fetchAndRenderBooks,
+  // fetchAndRenderTrending, fetchAndRenderOffers, fetchAndRenderEbooks).
+  // Those functions are called from api.js's own DOMContentLoaded handler and
+  // always fetch fresh from the live DRF API — no static data is used here.
+  // observeBookCards() is called by api.js after rendering.
 
-  // Observe trending & ebook cards
-  setTimeout(() => {
-    document.querySelectorAll('#trending-container .trending-card, #ebooks-container .book-card').forEach(el => el.classList.add('visible'));
-  }, 300);
-
-  // Filter click
+  // Filter click — delegates to api.js's fetchAndRenderBooks so data is always
+  // fetched fresh from the API rather than re-rendering from a local array.
   document.querySelectorAll('.filter-pill').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const grid = document.getElementById('books-container');
-      grid.classList.add('filtering');
-      generateBooks(btn.dataset.category);
-      observeBookCards();
-      setTimeout(() => grid.classList.remove('filtering'), 500);
+      if (grid) grid.classList.add('filtering');
+      const cat = btn.dataset.category || 'all';
+      if (typeof window.fetchAndRenderBooks === 'function') {
+        window.fetchAndRenderBooks(cat).then(() => observeBookCards());
+      } else {
+        generateBooks(cat);
+        observeBookCards();
+      }
+      setTimeout(() => { if (grid) grid.classList.remove('filtering'); }, 500);
     });
   });
 
@@ -2684,8 +2645,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const clickedFmt = fmtBtn.dataset.fmt;
       card.querySelectorAll('.format-btn').forEach(b => b.classList.remove('selected'));
       fmtBtn.classList.add('selected');
-      const sourceBooks = Array.isArray(window.books) && window.books.length > 0 ? window.books : books;
-      const b = sourceBooks.find(bk => bk.id === bookId);
+      const b = (window.books || []).find(bk => bk.id === bookId);
       if (b) {
         const priceEl = card.querySelector('.book-price');
         if (priceEl) priceEl.textContent = formatINR(clickedFmt === 'ebook' ? Math.round(b.price * 0.6) : b.price);
@@ -3028,9 +2988,9 @@ let _qvBook = null;
 let _qvFmt = 'physical';
 let _qvQty = 1;
 
-function showQuickView(bookId, triggerEl) {
-  const allBooks = window.books || books;
-  const book = allBooks.find(b => b.id == bookId);
+async function showQuickView(bookId, triggerEl) {
+  // Reads fresh from the DRF backend via BookService.
+  const book = await window.BookService.fetchOne(bookId);
   if (!book) return;
   _qvBook = book;
   _qvFmt = 'physical';
@@ -3314,7 +3274,18 @@ function initSearchModal() {
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
     setTimeout(() => input.focus(), 150);
+    // Render immediately with current data (instant feedback)
     renderSearchResults(input.value.trim());
+    // Fire a background refresh so prices always reflect the latest admin edits,
+    // even if this tab has been open for a while without a full page reload.
+    if (typeof window.refreshBooksData === 'function') {
+      window.refreshBooksData().then(fresh => {
+        if (fresh && modal.classList.contains('active')) {
+          // Re-render only if the modal is still open
+          renderSearchResults(input.value.trim());
+        }
+      }).catch(() => { /* network error — keep showing cached data */ });
+    }
   }
 
   function closeSearch() {
@@ -3349,13 +3320,11 @@ function initSearchModal() {
     });
   });
 
-  function renderSearchResults(query) {
+  async function renderSearchResults(query) {
     if (!resultsList) return;
     const q = query.toLowerCase();
-    const sourceBooks = Array.isArray(window.books) && window.books.length > 0 ? window.books : books;
-    const matched = q
-      ? sourceBooks.filter(b => b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q) || (b.category && b.category.toLowerCase().includes(q)))
-      : sourceBooks.slice(0, 6);
+    const sourceBooks = await window.BookService.fetchAll(q ? { search: q } : {});
+    const matched = sourceBooks;
 
     if (matched.length === 0) {
       resultsList.innerHTML = `<div style="padding:1.5rem;text-align:center;color:var(--text-muted);font-size:0.9rem;">No volumes found matching "${escHtml(query)}". Try searching another keyword or author.</div>`;
@@ -3383,17 +3352,12 @@ function initSearchModal() {
 }
 
 // ---- 3. Bestsellers Tabs ----
-function renderBestsellers(tab = 'all') {
+// Reads window.books (set by api.js). Called after api.js populates window.books.
+async function renderBestsellers(tab = 'all') {
   const container = document.getElementById('bestsellers-container');
   if (!container) return;
-  const sourceBooks = Array.isArray(window.books) && window.books.length > 0 ? window.books : books;
-  let filtered = sourceBooks;
-  if (tab === 'Fiction') filtered = sourceBooks.filter(b => b.category === 'Fiction');
-  else if (tab === 'Self-Help') filtered = sourceBooks.filter(b => b.category === 'Self-Help');
-  else if (tab === 'Business') filtered = sourceBooks.filter(b => b.category === 'Business');
-  else if (tab === 'Classics') filtered = sourceBooks.filter(b => b.category === 'Classics');
-
-  container.innerHTML = filtered.slice(0, 8).map(b => buildBookCard(b)).join('');
+  const sourceBooks = await window.BookService.fetchAll(tab === 'all' ? {} : { category: tab });
+  container.innerHTML = sourceBooks.slice(0, 8).map(b => buildBookCard(b)).join('');
 }
 
 function initBestsellerTabs() {
@@ -3408,11 +3372,15 @@ function initBestsellerTabs() {
 }
 
 // ---- 4. New Arrivals ----
-function renderNewArrivals() {
+// Shows the most recently added books (last 8 by DB insertion order, i.e. highest IDs).
+// Reads window.books (set by api.js). The slice(-8) always shows the newest books
+// regardless of catalog size, including any book just added via the admin dashboard.
+async function renderNewArrivals() {
   const container = document.getElementById('new-arrivals-container');
   if (!container) return;
-  const sourceBooks = Array.isArray(window.books) && window.books.length > 0 ? window.books : books;
-  const fresh = sourceBooks.slice(14, 22);
+  const sourceBooks = await window.BookService.fetchAll();
+  // Use the last 8 books (highest DB IDs = most recently created).
+  const fresh = sourceBooks.slice(-8);
   container.innerHTML = fresh.map(b => buildBookCard(b)).join('');
 }
 
@@ -3462,6 +3430,8 @@ function initMobileDrawer() {
 }
 
 // ---- 7. Category Discovery Cards Click ----
+// Routes through filter pills (which call fetchAndRenderBooks) so every
+// category click always fetches fresh data from the API.
 function initCategoryCards() {
   const cards = document.querySelectorAll('.category-card[data-category]');
   cards.forEach(card => {
@@ -3469,7 +3439,10 @@ function initCategoryCards() {
       const cat = card.dataset.category;
       const pill = document.querySelector(`.filter-pill[data-category="${cat}"]`);
       if (pill) {
+        // Pill click handler calls fetchAndRenderBooks — keeps one code path.
         pill.click();
+      } else if (typeof window.fetchAndRenderBooks === 'function') {
+        window.fetchAndRenderBooks(cat).then(() => observeBookCards());
       } else {
         generateBooks(cat);
       }
@@ -3482,8 +3455,13 @@ function initCategoryCards() {
   if (ebookBtn) {
     ebookBtn.addEventListener('click', () => {
       const pill = document.querySelector('.filter-pill[data-ebook-filter]');
-      if (pill) pill.click();
-      else generateBooks('eBook');
+      if (pill) {
+        pill.click();
+      } else if (typeof window.fetchAndRenderBooks === 'function') {
+        window.fetchAndRenderBooks('eBook').then(() => observeBookCards());
+      } else {
+        generateBooks('eBook');
+      }
       const target = document.getElementById('books');
       if (target) target.scrollIntoView({ behavior: 'smooth' });
     });

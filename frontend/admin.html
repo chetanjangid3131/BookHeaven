@@ -501,7 +501,7 @@
     </div>
     <div class="field">
       <label>Cover image URL <span class="hint">(optional)</span></label>
-      <input type="url" id="f-image" placeholder="https://…">
+      <input type="text" id="f-image" placeholder="assets/book-N-title.jpg  or  https://…">
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="book-modal-cancel" type="button">Cancel</button>
@@ -543,7 +543,15 @@
     setTimeout(() => el.remove(), 3800);
   }
   function friendlyError(err, fallback) {
-    return (err && err.message) ? err.message : (fallback || 'Something went wrong.');
+    if (!err) return fallback || 'Something went wrong.';
+    // ApiError carries the raw DRF response body in err.details (field errors dict)
+    if (err.details && typeof err.details === 'object') {
+      const msgs = Object.entries(err.details)
+        .map(([f, v]) => `${f}: ${Array.isArray(v) ? v[0] : v}`)
+        .join('; ');
+      if (msgs) return msgs;
+    }
+    return err.message || fallback || 'Something went wrong.';
   }
 
   /* ---------------------------------- Auth guard ---------------------------------- */
@@ -777,9 +785,9 @@
     if (!confirm(`Remove “${book ? book.title : 'this title'}” from the catalog? This can't be undone.`)) return;
     try {
       await BookHavenAdmin.books.remove(id);
-      state.books = state.books.filter(b => String(b.id) !== String(id));
+      await loadBooks(); // Always fetch fresh data
       try { localStorage.setItem('bh_catalog_version', String(Date.now())); } catch {}
-      renderCatalog(); renderOverview();
+      renderOverview();
       toast('Book removed from the catalog.', 'success');
     } catch (err) {
       toast(friendlyError(err, 'Could not delete this book.'), 'error');
@@ -832,18 +840,16 @@
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
       try {
         if (editingBookId) {
-          const updated = await BookHavenAdmin.books.update(editingBookId, payload);
-          const idx = state.books.findIndex(b => String(b.id) === String(editingBookId));
-          if (idx > -1) state.books[idx] = { ...state.books[idx], ...(updated || payload) };
+          await BookHavenAdmin.books.update(editingBookId, payload);
           toast('Book updated.', 'success');
         } else {
-          const created = await BookHavenAdmin.books.create(payload);
-          state.books.unshift(created || { id: 'tmp-' + Date.now(), ...payload });
+          await BookHavenAdmin.books.create(payload);
           toast('Book added to the catalog.', 'success');
         }
+        await loadBooks(); // Always fetch fresh data
         closeBookModal();
         try { localStorage.setItem('bh_catalog_version', String(Date.now())); } catch {}
-        renderCatalog(); renderOverview();
+        renderOverview();
       } catch (err) {
         toast(friendlyError(err, 'Could not save this book.'), 'error');
       } finally {
