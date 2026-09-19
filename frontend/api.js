@@ -320,6 +320,7 @@
     else if (filter !== 'all') params.category = filter;
 
     const books = await window.BookService.fetchAll(params);
+    if (filter === 'all') window.books = books;
     if (books && books.length > 0) {
       container.innerHTML = books.map(book => buildBookCard(book)).join('');
       attachCardEvents(container);
@@ -429,7 +430,7 @@
 
   // ─── Wishlist overrides ─────────────────────────────────────────────────────
 
-  async function syncWishlistFromServer() {
+  window.syncWishlistFromServer = async function syncWishlistFromServer() {
     if (!getToken()) return;
     const { ok, data } = await apiRequest('GET', '/orders/wishlist/', null, true);
     if (ok && data.items) {
@@ -440,14 +441,41 @@
 
   function updateWishlistUI() {
     // Update the heart buttons on book cards
+    document.querySelectorAll('.book-wishlist-btn').forEach(btn => {
+      const bid = Number(btn.dataset.wishlistBook);
+      const isWishlisted = window.wishlist.some(w => (w.book || w.id || w) == bid);
+      if (isWishlisted) {
+        btn.classList.add('active');
+        const svg = btn.querySelector('svg');
+        if (svg) svg.setAttribute('fill', 'currentColor');
+      } else {
+        btn.classList.remove('active');
+        const svg = btn.querySelector('svg');
+        if (svg) svg.setAttribute('fill', 'none');
+      }
+    });
+    // Update modal wishlist buttons
     document.querySelectorAll('.wishlist-btn').forEach(btn => {
       const bid = Number(btn.dataset.wishlistBook);
-      const isWishlisted = window.wishlist.some(w => w.book === bid);
+      const isWishlisted = window.wishlist.some(w => (w.book || w.id || w) == bid);
       btn.style.color = isWishlisted ? '#ef4444' : 'inherit';
       btn.innerHTML = isWishlisted ? '❤️' : '🤍';
     });
     // Re-render modal if open
     if (window.renderWishlistItems) window.renderWishlistItems();
+    
+    updateWishlistCount();
+  }
+
+  function updateWishlistCount() {
+    const countEl = document.getElementById('wishlist-count');
+    if (countEl) {
+      countEl.textContent = String(window.wishlist.length);
+      countEl.classList.remove('bouncing');
+      void countEl.offsetWidth; // force reflow
+      countEl.classList.add('bouncing');
+      countEl.addEventListener('animationend', () => countEl.classList.remove('bouncing'), { once: true });
+    }
   }
 
   window.toggleWishlist = async function (bookId) {
@@ -468,12 +496,12 @@
 
   // ─── Cart overrides ─────────────────────────────────────────────────────────
 
-  async function syncCartFromServer() {
+  window.syncCartFromServer = async function syncCartFromServer() {
     if (!getToken()) return;
     const { ok, data } = await apiRequest('GET', '/orders/cart/', null, true);
     if (!ok) return;
     // Convert server cart to local cart format with cartId and cover image
-    cart = (data.items || []).map(item => ({
+    const newItems = (data.items || []).map(item => ({
       _cartItemId: item.id,
       cartId: `${item.book.id}-${item.format || 'physical'}`,
       id: item.book.id,
@@ -484,24 +512,30 @@
       format: item.format,
       quantity: item.quantity,
     }));
-    window.cart = cart;
+    if (window.cart) {
+      window.cart.length = 0;
+      window.cart.push(...newItems);
+    } else {
+      window.cart = newItems;
+    }
     updateCartCount();
-  }
+  };
 
   // Override: addToCart
   window.addToCart = async function (bookId, format = 'physical', quantity = 1) {
     const qty = Math.max(1, parseInt(quantity, 10) || 1);
     const cartId = `${bookId}-${format}`;
+    let myCart = window.cart || [];
     if (!currentUser || !getToken()) {
       // Not logged in — use API to fetch fresh book details
       const book = await window.BookService.fetchOne(bookId);
       if (!book) return;
-      const existing = cart.find(c => c.cartId === cartId || (c.id == bookId && c.format === format));
+      const existing = myCart.find(c => c.cartId === cartId || (c.id == bookId && c.format === format));
       if (existing) {
         existing.quantity = (existing.quantity || 1) + qty;
       } else {
         const cover = (book.id === 4 || (book.title && book.title.includes('Harry Potter'))) ? 'assets/harry-potter.jpg' : (book.image || '');
-        cart.push({
+        myCart.push({
           cartId,
           id: book.id,
           title: book.title,
@@ -512,8 +546,7 @@
           quantity: qty
         });
       }
-      window.cart = cart;
-      localStorage.setItem('bookCart', JSON.stringify(cart));
+      localStorage.setItem('bookCart', JSON.stringify(myCart));
       updateCartCount();
       showNotification(`${book.title} added to bag! 🛒`, 'success');
       return;
@@ -521,7 +554,7 @@
     // Logged in — sync with server
     const { ok, data } = await apiRequest('POST', '/orders/cart/add/', { book_id: bookId, format, quantity: qty }, true);
     if (ok) {
-      cart = (data.items || []).map(item => ({
+      const newItems = (data.items || []).map(item => ({
         _cartItemId: item.id,
         cartId: `${item.book.id}-${item.format || 'physical'}`,
         id: item.book.id,
@@ -532,10 +565,15 @@
         format: item.format,
         quantity: item.quantity,
       }));
-      window.cart = cart;
-      localStorage.setItem('bookCart', JSON.stringify(cart));
+      if (window.cart) {
+        window.cart.length = 0;
+        window.cart.push(...newItems);
+      } else {
+        window.cart = newItems;
+      }
+      localStorage.setItem('bookCart', JSON.stringify(window.cart));
       updateCartCount();
-      const bookName = cart.find(c => c.id == bookId)?.title || 'Book';
+      const bookName = window.cart.find(c => c.id == bookId)?.title || 'Book';
       showNotification(`${bookName} added to bag! 🛒`, 'success');
     } else {
       showNotification(extractError(data), 'error');
@@ -655,7 +693,9 @@
         </div>`;
     }
 
-    cart = [];
+    if (window.cart) window.cart.length = 0;
+    else window.cart = [];
+    localStorage.removeItem('bookCart');
     updateCartCount();
     apiPendingOrderBooks = purchasedBooks;
     
@@ -790,6 +830,11 @@
       currentUser = JSON.parse(cachedUser);
       if (currentUser && (currentUser.name || currentUser.email)) {
         if (typeof updateUIForLoggedInUser === 'function') updateUIForLoggedInUser();
+        // Automatically sync wishlist and cart to show correct badges and icons on page load
+        if (getToken()) {
+          if (typeof window.syncCartFromServer === 'function') window.syncCartFromServer();
+          if (typeof window.syncWishlistFromServer === 'function') window.syncWishlistFromServer();
+        }
       } else {
         clearTokens();
         localStorage.removeItem('currentUser');

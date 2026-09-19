@@ -111,6 +111,14 @@ function generateEditorialCoverSvg(title, author, category) {
 // and window.offers respectively.)
 
 let cart = [];
+try {
+  const savedCart = localStorage.getItem('bookCart');
+  if (savedCart) {
+    cart = JSON.parse(savedCart);
+  }
+} catch (e) {
+  cart = [];
+}
 window.cart = cart;
 let currentUser = null;
 
@@ -225,11 +233,16 @@ function updateUIForLoggedOutUser() {
   if (emailEl) emailEl.textContent = 'Sign in to sync your library';
   if (logoutBtn) logoutBtn.style.display = 'none';
 
-  // 4. Reset forms
+  // 4. Reset forms & badges
   const loginForm = document.getElementById('login-form');
   const signupForm = document.getElementById('signup-form');
   if (loginForm) loginForm.reset();
   if (signupForm) signupForm.reset();
+  
+  const wishlistCount = document.getElementById('wishlist-count');
+  if (wishlistCount) wishlistCount.textContent = '0';
+  
+  updateCartCount();
 }
 
 window.updateUIForLoggedInUser = updateUIForLoggedInUser;
@@ -413,6 +426,11 @@ async function handleLogin(e) {
 
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
     updateUIForLoggedInUser();
+    
+    // Sync wishlist and cart
+    if (typeof window.syncWishlistFromServer === 'function') window.syncWishlistFromServer();
+    if (typeof window.syncCartFromServer === 'function') window.syncCartFromServer();
+    
     closeLogin();
     showNotification(`Welcome back, ${currentUser.name}! 👋`, 'success');
   } catch (err) {
@@ -509,6 +527,11 @@ async function handleSignup(e) {
 
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
     updateUIForLoggedInUser();
+    
+    // Sync wishlist and cart
+    if (typeof window.syncWishlistFromServer === 'function') window.syncWishlistFromServer();
+    if (typeof window.syncCartFromServer === 'function') window.syncCartFromServer();
+    
     closeLogin();
     showNotification(`Account created! Welcome, ${name}! 🎉`, 'success');
   } catch (err) {
@@ -564,7 +587,7 @@ function generateBooks(filter = 'all') {
 
 function buildBookCard(book) {
   const bookReviews = (typeof reviewsDB !== 'undefined' && reviewsDB[book.id]) || [];
-  const isWishlisted = Array.isArray(window.wishlist) && window.wishlist.some(id => String(id) === String(book.id));
+  const isWishlisted = Array.isArray(window.wishlist) && window.wishlist.some(w => (w.book || w.id || w) == book.id);
   const ebookPrice = Math.round(book.price * 0.6);
   const ebookBadge = book.ebook ? `<span class="book-card-ebook-price">eBook ${formatINR(ebookPrice)}</span>` : '';
   const badgeClass = book.badge === 'Hot' ? 'badge-hot' : (book.badge === 'Classic' ? 'badge-classic' : '');
@@ -2676,7 +2699,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 4. Wishlist button
-    const wBtn = e.target.closest('.wishlist-btn');
+    const wBtn = e.target.closest('.wishlist-btn') || e.target.closest('.book-wishlist-btn');
     if (wBtn) {
       e.stopPropagation();
       const bid = Number(wBtn.dataset.wishlistBook || id);
@@ -2852,10 +2875,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let html = '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:1rem;">';
     wList.forEach(item => {
       const b = item.book_details || item; // fallback if just a book object
+      const coverImg = b.image || b.image_url || ((b.id === 4 || (b.title && b.title.toLowerCase().includes('harry potter'))) ? 'assets/harry-potter.jpg' : 'assets/book-1-sapiens.jpg');
       html += `
             <div class="wishlist-item" style="border:1px solid rgba(0,0,0,0.1); border-radius:8px; padding:0.5rem; text-align:center; position:relative;">
               <button class="wishlist-btn" data-wishlist-book="${b.id}" style="position:absolute; top:5px; right:5px; background:white; border:none; border-radius:50%; width:24px; height:24px; font-size:12px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.2); z-index:2; transition:transform 0.2s;">❤️</button>
-              <img src="${b.image || b.image_url}" style="width:100%; height:auto; aspect-ratio:2/3; object-fit:cover; border-radius:4px; margin-bottom:0.5rem;" />
+              <img src="${coverImg}" style="width:100%; height:auto; aspect-ratio:2/3; object-fit:cover; border-radius:4px; margin-bottom:0.5rem;" />
               <div style="font-size:0.9rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${b.title}">${b.title}</div>
               <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.5rem;">${b.author}</div>
               <button class="btn btn-primary" style="padding:0.3rem 0.5rem; font-size:0.8rem; width:100%;" onclick="addToCart(${b.id}, 'physical')">Add to Cart</button>
@@ -2866,10 +2890,14 @@ document.addEventListener('DOMContentLoaded', () => {
     body.innerHTML = html;
   };
 
-  function openWishlistModal(triggerEl) {
+  async function openWishlistModal(triggerEl) {
     if (!currentUser) return openLogin(triggerEl);
     const modal = document.getElementById('wishlist-modal');
     if (!modal) return;
+
+    if (typeof window.syncWishlistFromServer === 'function') {
+      await window.syncWishlistFromServer();
+    }
 
     if (window.renderWishlistItems) window.renderWishlistItems();
     ModalManager.open('wishlist-modal', triggerEl);
@@ -3358,7 +3386,8 @@ function initSearchModal() {
 async function renderBestsellers(tab = 'all') {
   const container = document.getElementById('bestsellers-container');
   if (!container) return;
-  const sourceBooks = await window.BookService.fetchAll(tab === 'all' ? {} : { category: tab });
+  const allBooks = window.books || [];
+  const sourceBooks = tab === 'all' ? allBooks : allBooks.filter(b => b.category === tab);
   container.innerHTML = sourceBooks.slice(0, 8).map(b => buildBookCard(b)).join('');
 }
 
@@ -3380,7 +3409,7 @@ function initBestsellerTabs() {
 async function renderNewArrivals() {
   const container = document.getElementById('new-arrivals-container');
   if (!container) return;
-  const sourceBooks = await window.BookService.fetchAll();
+  const sourceBooks = window.books || [];
   // Use the last 8 books (highest DB IDs = most recently created).
   const fresh = sourceBooks.slice(-8);
   container.innerHTML = fresh.map(b => buildBookCard(b)).join('');
@@ -3504,6 +3533,19 @@ function initWishlistHeaderBtn() {
       openWishlistModal();
     });
   }
+  const body = document.getElementById('wishlist-body');
+  if (body) {
+    body.addEventListener('click', (e) => {
+      const wBtn = e.target.closest('.wishlist-btn');
+      if (wBtn) {
+        e.stopPropagation();
+        const bid = Number(wBtn.dataset.wishlistBook);
+        wBtn.style.transform = 'scale(1.2)';
+        setTimeout(() => wBtn.style.transform = 'scale(1)', 200);
+        if (window.toggleWishlist) window.toggleWishlist(bid);
+      }
+    });
+  }
 }
 
 // ---- Header Scroll Logic ----
@@ -3523,8 +3565,6 @@ window.addEventListener('DOMContentLoaded', () => {
   initCinematicIntro();
   initSearchModal();
   initBestsellerTabs();
-  renderBestsellers('all');
-  renderNewArrivals();
   initTrendingCarousel();
   initMobileDrawer();
   initCategoryCards();

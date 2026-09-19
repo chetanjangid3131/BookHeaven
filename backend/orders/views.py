@@ -246,6 +246,8 @@ class WishlistToggleView(APIView):
         else:
             action = 'added'
             
+        # Re-fetch the wishlist to ensure the related items are fresh for the serializer
+        wishlist = Wishlist.objects.prefetch_related('items__book').get(id=wishlist.id)
         return Response({
             'message': f'Book {action} from wishlist.',
             'action': action,
