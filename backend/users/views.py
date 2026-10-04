@@ -64,8 +64,14 @@ class LoginView(APIView):
 from django.contrib.auth import logout as django_logout
 
 class LogoutView(APIView):
-    """POST /api/auth/logout/ — Blacklist refresh token and clear session."""
-    permission_classes = [IsAuthenticated]
+    """POST /api/auth/logout/ — Blacklist refresh token and clear session.
+
+    Uses AllowAny so this endpoint works even when the access token has already
+    expired — which is the common case when a user returns after a long gap.
+    The refresh token in the body is what gets blacklisted; no sensitive data
+    is exposed by allowing unauthenticated access here.
+    """
+    permission_classes = [AllowAny]
 
     def post(self, request):
         django_logout(request)
@@ -102,6 +108,9 @@ class GoogleAuthView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        from django.conf import settings
+        if not settings.DEBUG:
+            return Response({'detail': 'Google OAuth is not available in this environment.'}, status=status.HTTP_403_FORBIDDEN)
         # In production, verify Google ID token here.
         # For now, create/get a demo user.
         email = request.data.get('email', 'google.user@gmail.com')

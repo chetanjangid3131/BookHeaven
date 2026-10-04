@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.db import transaction
 
 from books.models import Book
 from .models import Cart, CartItem, Order, OrderItem, Wishlist, WishlistItem
@@ -33,7 +34,10 @@ class CartAddView(APIView):
         cart, _ = Cart.objects.get_or_create(user=request.user)
         serializer = CartItemSerializer(data=request.data)
         if serializer.is_valid():
-            book = Book.objects.get(id=serializer.validated_data['book_id'])
+            try:
+                book = Book.objects.get(id=serializer.validated_data['book_id'])
+            except Book.DoesNotExist:
+                return Response({'error': 'Book not found.'}, status=status.HTTP_404_NOT_FOUND)
             fmt = serializer.validated_data.get('format', 'physical')
             qty = serializer.validated_data.get('quantity', 1)
 
@@ -100,7 +104,7 @@ class CartClearView(APIView):
 # ─────────────────────────────────────────────
 
 class CheckoutView(APIView):
-    """POST /api/orders/ — Convert cart to order."""
+    """POST /api/orders/checkout/ — Convert cart to order."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -137,29 +141,30 @@ class CheckoutView(APIView):
         final_total = max(raw_total - discount, 0)
 
         # Create order
-        order = Order.objects.create(
-            user=request.user,
-            total=final_total,
-            delivery_address=serializer.validated_data.get('delivery_address', ''),
-            coupon_code=coupon,
-            discount_amount=discount,
-            payment_method=serializer.validated_data.get('payment_method', 'UPI'),
-        )
-
-        # Create order items (price snapshot)
-        for item in items:
-            OrderItem.objects.create(
-                order=order,
-                book=item.book,
-                title=item.book.title,
-                author=item.book.author,
-                quantity=item.quantity,
-                format=item.format,
-                unit_price=item.unit_price,
+        with transaction.atomic():
+            order = Order.objects.create(
+                user=request.user,
+                total=final_total,
+                delivery_address=serializer.validated_data.get('delivery_address', ''),
+                coupon_code=coupon,
+                discount_amount=discount,
+                payment_method=serializer.validated_data.get('payment_method', 'UPI'),
             )
 
-        # Clear cart
-        items.delete()
+            # Create order items (price snapshot)
+            for item in items:
+                OrderItem.objects.create(
+                    order=order,
+                    book=item.book,
+                    title=item.book.title,
+                    author=item.book.author,
+                    quantity=item.quantity,
+                    format=item.format,
+                    unit_price=item.unit_price,
+                )
+
+            # Clear cart
+            items.delete()
 
         return Response({
             'message': '🎉 Order placed successfully!',
@@ -172,7 +177,7 @@ class OrderListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        orders = Order.objects.filter(user=request.user).prefetch_related('items')
+        orders = Order.objects.filter(user=request.user).prefetch_related('items__book')
         return Response(OrderSerializer(orders, many=True).data)
 
 
@@ -182,7 +187,7 @@ class OrderDetailView(APIView):
 
     def get(self, request, order_id):
         try:
-            order = Order.objects.prefetch_related('items').get(
+            order = Order.objects.prefetch_related('items__book').get(
                 id=order_id, user=request.user
             )
         except Order.DoesNotExist:

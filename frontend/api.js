@@ -45,7 +45,20 @@
   }
 
   // ─── HTTP helpers ───────────────────────────────────────────────────────────
-  async function apiRequest(method, path, body = null, auth = false) {
+  // ─── JWT helpers ─────────────────────────────────────────────────────────────
+  // Decode the JWT payload without verifying signature (client-side only check).
+  function isTokenExpired(token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      // Add a 30-second buffer so we refresh slightly before actual expiry
+      return Date.now() >= (payload.exp * 1000) - 30000;
+    } catch (_) {
+      return true; // Treat unreadable tokens as expired
+    }
+  }
+
+  let refreshPromise = null;
+  async function apiRequest(method, path, body = null, auth = false, isRetry = false) {
     const headers = { 'Content-Type': 'application/json' };
     if (auth) {
       const token = getToken();
@@ -59,8 +72,54 @@
     if (body) opts.body = JSON.stringify(body);
 
     try {
-      const res = await fetch(`${API_BASE}${path}`, opts);
-      const data = await res.json().catch(() => ({}));
+      let res = await fetch(`${API_BASE}${path}`, opts);
+      let data = await res.json().catch(() => ({}));
+
+      // Auto-refresh token on 401
+      if (auth && res.status === 401 && !isRetry) {
+        const refreshToken = localStorage.getItem('bh_refresh_token');
+        if (refreshToken) {
+          if (!refreshPromise) {
+            refreshPromise = fetch(`${API_BASE}/auth/token/refresh/`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refresh: refreshToken })
+            }).then(r => r.json()).catch(() => ({}));
+          }
+          const refreshData = await refreshPromise;
+          
+          if (refreshData.access) {
+             setTokens(refreshData.access, refreshData.refresh || refreshToken);
+             refreshPromise = null;
+             
+             // Retry original request with the new token
+             opts.headers['Authorization'] = `Bearer ${refreshData.access}`;
+             res = await fetch(`${API_BASE}${path}`, opts);
+             data = await res.json().catch(() => ({}));
+          } else {
+             refreshPromise = null;
+             // Refresh token is expired/invalid.
+             // If Clerk SDK is present, it will automatically call onClerkSignIn and
+             // recover the session — DON'T force-logout here, let Clerk handle it.
+             if (!window.Clerk || !window.Clerk.user) {
+               // No Clerk to recover — hard logout
+               clearTokens();
+               localStorage.removeItem('currentUser');
+               if (typeof currentUser !== 'undefined') currentUser = null;
+               window.cart = [];
+               window.wishlist = [];
+               if (typeof updateUIForLoggedOutUser === 'function') updateUIForLoggedOutUser();
+               if (typeof showNotification === 'function') showNotification('Session expired, please login again 🔐', 'info');
+             } else {
+               // Clerk is present — just clear the stale Django tokens.
+               // onClerkSignIn will fire and mint fresh ones.
+               clearTokens();
+               console.info('[BookHaven] Django token expired; waiting for Clerk to re-sync…');
+             }
+          }
+        }
+      }
+
       return { ok: res.ok, status: res.status, data };
     } catch (err) {
       console.warn('[BookHaven API] Network error:', err.message);
@@ -159,6 +218,15 @@
         }
 
         showNotification(data.message || `Welcome, ${currentUser.name}! 👋`, 'success');
+        // Merge guest cart to backend before syncing
+        const guestItems = (window.cart || []).filter(i => i.id);
+        for (const item of guestItems) {
+          await apiRequest('POST', '/orders/cart/add/', {
+            book_id: item.id,
+            format: item.format || 'physical',
+            quantity: item.quantity || 1
+          }, true);
+        }
         await syncCartFromServer();
         await syncWishlistFromServer();
       } else {
@@ -175,7 +243,8 @@
     clearTokens();
     localStorage.removeItem('currentUser');
     currentUser = null;
-    cart = [];
+    if (window.cart) window.cart.length = 0;
+    else window.cart = [];
     window.wishlist = [];
     // Reset UI — reuse script.js helper if available
     if (typeof updateUIForLoggedOutUser === 'function') {
@@ -221,7 +290,7 @@
     // Clear stale pre-Clerk localStorage sessions immediately so they don't
     // flash a phantom avatar before Clerk's auth state is known.
     const cachedUser = (() => { try { return JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch { return null; } })();
-    const isLegacySession = cachedUser && !cachedUser.clerk_user_id && !cachedUser.id;
+    const isLegacySession = cachedUser && !cachedUser.clerk_user_id && !cachedUser.email;
     if (isLegacySession) {
       console.info('[BookHaven] Clearing stale pre-Clerk session from localStorage.');
       clearTokens();
@@ -265,23 +334,6 @@
     tryInit();
   })();
 
-  // Clerk auth callbacks
-  /** Called when Clerk reports a signed-out state. */
-  function onClerkSignOut() {
-    clearTokens();
-    localStorage.removeItem('currentUser');
-    currentUser = null;
-    cart = [];
-    window.wishlist = [];
-    // Reset UI — reuse script.js helper if available
-    if (typeof updateUIForLoggedOutUser === 'function') {
-      updateUIForLoggedOutUser();
-    } else {
-      // Fallback: reload to cleanly reset all local state
-      window.location.reload();
-    }
-  }
-
 
   // ─── Books override ─────────────────────────────────────────────────────────
 
@@ -320,7 +372,13 @@
     else if (filter !== 'all') params.category = filter;
 
     const books = await window.BookService.fetchAll(params);
-    if (filter === 'all') window.books = books;
+    if (filter === 'all') {
+      window.books = books;
+    } else {
+      // Merge filtered books into window.books so lookups always work
+      const existing = new Set((window.books || []).map(b => b.id));
+      books.forEach(b => { if (!existing.has(b.id)) window.books.push(b); });
+    }
     if (books && books.length > 0) {
       container.innerHTML = books.map(book => buildBookCard(book)).join('');
       attachCardEvents(container);
@@ -337,17 +395,13 @@
 
   // Map Django API fields to the shape script.js expects
   function mapApiBook(b) {
-    let coverImg = b.image_url;
-    if (!coverImg && (b.id === 4 || (b.title && b.title.toLowerCase().includes('harry potter')))) {
-      coverImg = 'assets/harry-potter.jpg';
-    }
     return {
       id: b.id,
       title: b.title,
       author: b.author,
       price: b.price,
       category: b.category,
-      image: coverImg || 'assets/book-1-sapiens.jpg',
+      image: b.image_url || 'assets/book-placeholder.jpg',
       rating: b.user_rating || b.rating,
       reviews: b.total_reviews || b.reviews_count,
       ebook: b.is_ebook,
@@ -474,7 +528,9 @@
       countEl.classList.remove('bouncing');
       void countEl.offsetWidth; // force reflow
       countEl.classList.add('bouncing');
-      countEl.addEventListener('animationend', () => countEl.classList.remove('bouncing'), { once: true });
+      countEl.removeEventListener('animationend', countEl._wishlistAnimEnd);
+      countEl._wishlistAnimEnd = () => countEl.classList.remove('bouncing');
+      countEl.addEventListener('animationend', countEl._wishlistAnimEnd, { once: true });
     }
   }
 
@@ -507,7 +563,7 @@
       id: item.book.id,
       title: item.book.title,
       author: item.book.author,
-      image: (item.book.id === 4 || (item.book.title && item.book.title.includes('Harry Potter'))) ? 'assets/harry-potter.jpg' : (item.book.image_url || ''),
+      image: item.book.image_url || '',
       price: item.unit_price,
       format: item.format,
       quantity: item.quantity,
@@ -534,13 +590,12 @@
       if (existing) {
         existing.quantity = (existing.quantity || 1) + qty;
       } else {
-        const cover = (book.id === 4 || (book.title && book.title.includes('Harry Potter'))) ? 'assets/harry-potter.jpg' : (book.image || '');
         myCart.push({
           cartId,
           id: book.id,
           title: book.title,
           author: book.author,
-          image: cover,
+          image: book.image || '',
           price: format === 'ebook' ? Math.round((book.price || 499) * 0.6) : (book.price || 499),
           format,
           quantity: qty
@@ -560,7 +615,7 @@
         id: item.book.id,
         title: item.book.title,
         author: item.book.author,
-        image: (item.book.id === 4 || (item.book.title && item.book.title.includes('Harry Potter'))) ? 'assets/harry-potter.jpg' : (item.book.image_url || ''),
+        image: item.book.image_url || '',
         price: item.unit_price,
         format: item.format,
         quantity: item.quantity,
@@ -626,6 +681,11 @@
   };
 
   window.executePaymentLogic = async function (method) {
+    // Snapshot cart NOW before anything clears it
+    const cartSnapshot = (window.cart || []).map(i => ({...i}));
+    const localTotal  = cartSnapshot.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0);
+    const localTxnId  = 'TXN' + Date.now().toString().slice(-10).toUpperCase();
+
     if (!currentUser || !getToken()) {
       showNotification('Please login to checkout 🔐', 'info');
       closePaymentModal();
@@ -633,29 +693,53 @@
       return;
     }
 
+    // ── Try to create the order on the backend ──────────────────────────────
     const { ok, data } = await apiRequest('POST', '/orders/checkout/', {
-      coupon_code: '', // Can be extended to support coupons from UI later
+      coupon_code: '',
       payment_method: method,
       delivery_address: currentUser.address || '',
     }, true);
 
-    if (!ok) {
-      showNotification(extractError(data), 'error');
-      closePaymentModal();
-      return;
+    // ── Build the confirmation data (from backend or local fallback) ────────
+    let txnId, total, purchasedBooks, createdAt, orderStatus;
+
+    if (ok && data.order) {
+      const order = data.order;
+      txnId          = order.tracking_id;
+      total          = order.total;
+      createdAt      = order.created_at;
+      orderStatus    = order.status;
+      purchasedBooks = order.items.map(item => ({
+        id: item.book, title: item.title, author: item.author, format: item.format,
+        price: item.unit_price, quantity: item.quantity,
+        image: item.image_url || ((window.books || []).find(b => b.id === item.book) || {}).image || ''
+      }));
+
+      // Add to ordersDB so Order History shows it immediately
+      ordersDB.unshift({
+        id: txnId,
+        placedAt: new Date(createdAt).getTime(),
+        books: purchasedBooks,
+        total, method: order.payment_method,
+        isOnlinePayment: method && (method.toLowerCase().includes('card') || method.toLowerCase().includes('net banking') || method.toLowerCase().includes('wallet') || method.toLowerCase().includes('upi')),
+        status: orderStatus,
+        user: (currentUser && currentUser.name) ? currentUser.name : 'Reader'
+      });
+    } else {
+      // Backend failed (cart empty on server, network error, etc.)
+      // Payment already happened via gateway — STILL show confirmation.
+      // Save locally so at least localStorage has the record.
+      txnId          = localTxnId;
+      total          = localTotal;
+      purchasedBooks = cartSnapshot;
+      orderStatus    = 'active';
+      console.warn('[BookHaven] Backend checkout failed:', extractError(data), '— saving locally.');
+      if (typeof saveOrderRecord === 'function') {
+        saveOrderRecord(cartSnapshot, localTotal, localTxnId, method);
+      }
     }
 
-    const order = data.order;
-    const total = order.total;
-    const txnId = order.tracking_id;
-    const purchasedBooks = order.items.map(item => ({
-       id: item.book,
-       title: item.title,
-       author: item.author,
-       format: item.format
-    }));
-
-    // Find eBook items in this purchase
+    // ── Find eBook items ────────────────────────────────────────────────────
     const ebookItems = purchasedBooks.filter(b => b.format === 'ebook');
     const ebookDownloadsHtml = ebookItems.length > 0 ? `
       <div class="ebook-downloads-section" style="margin-top:1.2rem;">
@@ -671,8 +755,10 @@
         </div>
       </div>` : '';
 
+    // ── Render success confirmation ──────────────────────────────────────────
     const body = document.getElementById('payment-modal-body');
     if (body) {
+      const userEmail = (currentUser && currentUser.email) ? currentUser.email : 'your registered email';
       body.innerHTML = `
         <div class="pay-success">
           <div class="pay-success-circle">✓</div>
@@ -680,7 +766,7 @@
           <p style="font-size:1.1rem;font-weight:800;">₹${total.toLocaleString('en-IN')} paid</p>
           <p>via <strong>${escHtml(method)}</strong></p>
           <div class="txn-id">Txn ID: ${escHtml(txnId)}</div>
-          <p style="margin-top:0.8rem;font-size:0.88rem;">Order confirmation sent to <strong>${escHtml(currentUser.email)}</strong></p>
+          <p style="margin-top:0.8rem;font-size:0.88rem;">Order confirmation sent to <strong>${escHtml(userEmail)}</strong></p>
           ${ebookDownloadsHtml}
           <div style="display:flex;gap:0.8rem;margin-top:1.5rem;">
             <button class="submit-btn" style="flex:1;" onclick="closePaymentModal();openTrackingModal('${escHtml(txnId)}')">
@@ -693,34 +779,16 @@
         </div>`;
     }
 
+    // ── Clear cart ──────────────────────────────────────────────────────────
     if (window.cart) window.cart.length = 0;
     else window.cart = [];
     localStorage.removeItem('bookCart');
-    updateCartCount();
+    if (typeof updateCartCount === 'function') updateCartCount();
     apiPendingOrderBooks = purchasedBooks;
-    
-    // Add to local ordersDB so tracking works immediately
-    ordersDB.unshift({
-        id: txnId,
-        placedAt: new Date(order.created_at).getTime(),
-        books: order.items.map(i => {
-            const localBook = (window.books || []).find(b => b.id === i.book);
-            return {
-                id: i.book,
-                title: i.title,
-                author: i.author,
-                image: localBook ? localBook.image : '',
-                price: i.unit_price,
-                quantity: i.quantity,
-                format: i.format
-            };
-        }),
-        total: order.total,
-        method: order.payment_method,
-        isOnlinePayment: method && (method.toLowerCase().includes('card') || method.toLowerCase().includes('net banking') || method.toLowerCase().includes('wallet') || method.toLowerCase().includes('upi')),
-        status: order.status,
-        user: currentUser.name
-    });
+
+    // ── Open confirmation modal ─────────────────────────────────────────────
+    if (typeof ModalManager !== 'undefined') ModalManager.open('payment-modal');
+    if (typeof showNotification === 'function') showNotification('🎉 Payment successful! Order confirmed.', 'success');
   };
 
   // ─── Orders override ─────────────────────────────────────────────────────────
@@ -731,40 +799,58 @@
         openLogin();
         return;
     }
-    
+
+    // Show modal immediately with loading state for better UX
+    if (typeof renderOrdersModal === 'function') renderOrdersModal();
+    if (typeof ModalManager !== 'undefined') ModalManager.open('orders-modal');
+    const ordersBody = document.getElementById('orders-list');
+    if (ordersBody) ordersBody.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-secondary)">📦 Loading your orders…</div>';
+
     // Fetch real orders from the API
     const { ok, data } = await apiRequest('GET', '/orders/', null, true);
     if (ok) {
         const apiOrders = data.results || data;
-        // Update the global ordersDB array in script.js by modifying it in place
-        ordersDB.length = 0; 
-        apiOrders.forEach(o => {
-            ordersDB.push({
-                id: o.tracking_id,
-                placedAt: new Date(o.created_at).getTime(),
-                books: o.items.map(i => {
-                    const localBook = (window.books || []).find(b => b.id === i.book);
-                    return {
-                        id: i.book || 0,
-                        title: i.title,
-                        author: i.author,
-                        image: localBook ? localBook.image : '',
-                        price: i.unit_price,
-                        quantity: i.quantity,
-                        format: i.format
-                    };
-                }),
-                total: o.total,
-                method: o.payment_method,
-                isOnlinePayment: o.payment_method && (o.payment_method.toLowerCase().includes('card') || o.payment_method.toLowerCase().includes('net banking') || o.payment_method.toLowerCase().includes('wallet') || o.payment_method.toLowerCase().includes('upi')),
-                status: o.status,
-                user: currentUser.name
+        if (Array.isArray(apiOrders)) {
+            // Update the global ordersDB array in script.js by modifying it in place
+            ordersDB.length = 0;
+            apiOrders.forEach(o => {
+                ordersDB.push({
+                    id: o.tracking_id,
+                    placedAt: new Date(o.created_at).getTime(),
+                    books: o.items.map(i => {
+                        // Use image_url from the API first, then fall back to window.books lookup
+                        let image = i.image_url || '';
+                        if (!image) {
+                            const localBook = (window.books || []).find(b => b.id === i.book);
+                            image = localBook ? (localBook.image || '') : '';
+                        }
+                        return {
+                            id: i.book || 0,
+                            title: i.title,
+                            author: i.author,
+                            image,
+                            price: i.unit_price,
+                            quantity: i.quantity,
+                            format: i.format
+                        };
+                    }),
+                    total: o.total,
+                    method: o.payment_method,
+                    isOnlinePayment: o.payment_method && (o.payment_method.toLowerCase().includes('card') || o.payment_method.toLowerCase().includes('net banking') || o.payment_method.toLowerCase().includes('wallet') || o.payment_method.toLowerCase().includes('upi')),
+                    status: o.status,
+                    user: (currentUser && currentUser.name) ? currentUser.name : 'Reader'
+                });
             });
-        });
+        }
+    } else {
+        // API failed — show what we have (from localStorage), and notify user
+        if (typeof showNotification === 'function') {
+            showNotification('Could not load latest orders. Showing cached history.', 'info');
+        }
     }
-    
-    // Call the original render logic which uses the updated ordersDB
-    if (originalOpenOrdersModal) originalOpenOrdersModal();
+
+    // Re-render with fresh data (modal is already open)
+    if (typeof renderOrdersModal === 'function') renderOrdersModal();
   };
 
   // ─── Reviews override ───────────────────────────────────────────────────────
@@ -773,7 +859,8 @@
   window.showAllReviews = async function (bookId) {
       const { ok, data } = await apiRequest('GET', `/reviews/?book=${bookId}`);
       if (ok) {
-          reviewsDB[bookId] = data.map(r => ({
+          const reviewList = Array.isArray(data) ? data : (data.results || []);
+          reviewsDB[bookId] = reviewList.map(r => ({
               id: r.id,
               user: r.user_name || 'Anonymous',
               rating: r.rating,
@@ -830,11 +917,19 @@
       currentUser = JSON.parse(cachedUser);
       if (currentUser && (currentUser.name || currentUser.email)) {
         if (typeof updateUIForLoggedInUser === 'function') updateUIForLoggedInUser();
-        // Automatically sync wishlist and cart to show correct badges and icons on page load
-        if (getToken()) {
+
+        const token = getToken();
+        if (token && !isTokenExpired(token)) {
+          // Token is still valid — sync immediately for fast page-load badges
           if (typeof window.syncCartFromServer === 'function') window.syncCartFromServer();
           if (typeof window.syncWishlistFromServer === 'function') window.syncWishlistFromServer();
+        } else if (token) {
+          // Token has expired — skip sync now to avoid a guaranteed 401.
+          // Clerk's onClerkSignIn() will fire momentarily and re-mint a fresh
+          // Django token, then call syncCartFromServer/syncWishlistFromServer itself.
+          console.info('[BookHaven] Cached token expired — deferring sync to Clerk re-auth.');
         }
+        // No token at all: Clerk's onClerkSignIn will handle everything.
       } else {
         clearTokens();
         localStorage.removeItem('currentUser');
@@ -849,29 +944,6 @@
     }
   }
 
-  // tryRefreshToken is kept for backward compat with simplejwt token flow
-  async function tryRefreshToken() {
-    const refresh = localStorage.getItem('bh_refresh_token');
-    if (!refresh) return false;
-    try {
-      const res = await fetch(`${API_BASE}/auth/token/refresh/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh }),
-      });
-      if (!res.ok) return false;
-      const result = await res.json();
-      if (result.access) {
-        localStorage.setItem('bh_access_token', result.access);
-        // ROTATE_REFRESH_TOKENS=True means the server may issue a new refresh token too
-        if (result.refresh) localStorage.setItem('bh_refresh_token', result.refresh);
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
 
   // ─── Helper: attach card events after dynamic render ────────────────────────
 

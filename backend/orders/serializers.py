@@ -25,7 +25,10 @@ class CartItemSerializer(serializers.ModelSerializer):
         book_id = data.get('book_id')
         fmt = data.get('format', 'physical')
         if book_id and fmt == 'ebook':
-            book = Book.objects.get(id=book_id)
+            try:
+                book = Book.objects.get(id=book_id)
+            except Book.DoesNotExist:
+                raise serializers.ValidationError({'format': 'Book not found.'})
             if not book.is_ebook:
                 raise serializers.ValidationError({'format': 'This book is not available as eBook.'})
         return data
@@ -43,10 +46,16 @@ class CartSerializer(serializers.ModelSerializer):
 
 class OrderItemSerializer(serializers.ModelSerializer):
     subtotal = serializers.ReadOnlyField()
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
-        fields = ('id', 'book', 'title', 'author', 'quantity', 'format', 'unit_price', 'subtotal')
+        fields = ('id', 'book', 'title', 'author', 'quantity', 'format', 'unit_price', 'subtotal', 'image_url')
+
+    def get_image_url(self, obj):
+        if obj.book:
+            return obj.book.image_url or ''
+        return ''
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -76,6 +85,7 @@ class WishlistItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = WishlistItem
         fields = ('id', 'book', 'book_details', 'added_at')
+        extra_kwargs = {'book': {'read_only': True}}
 
     def get_book_details(self, obj):
         from books.serializers import BookSerializer

@@ -76,8 +76,12 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # XFrameOptionsMiddleware removed — it blocks Razorpay's iframe checkout popup.
+    # Razorpay loads its payment UI inside an iframe which needs X-Frame-Options: ALLOWALL.
 ]
+
+# Allow Razorpay and other payment gateway iframes to load
+X_FRAME_OPTIONS = 'ALLOWALL'
 
 ROOT_URLCONF = 'bookhaven.urls'
 
@@ -243,8 +247,8 @@ REST_FRAMEWORK = {
 
 # ─── JWT Settings ─────────────────────────────────────────────────────────────
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=60),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),

@@ -847,7 +847,9 @@ function updateCartCount() {
     countEl.classList.remove('bouncing');
     void countEl.offsetWidth; // force reflow
     countEl.classList.add('bouncing');
-    countEl.addEventListener('animationend', () => countEl.classList.remove('bouncing'), { once: true });
+    countEl.removeEventListener('animationend', countEl._cartAnimEnd);
+    countEl._cartAnimEnd = () => countEl.classList.remove('bouncing');
+    countEl.addEventListener('animationend', countEl._cartAnimEnd, { once: true });
   }
 }
 
@@ -968,7 +970,7 @@ window.changeCartQty = function(cartId, delta) {
         'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ quantity: item.quantity })
-    }).catch(() => {});
+    }).catch(err => { console.warn('[BookHaven] Cart sync failed:', err); showNotification('Cart update failed — please refresh', 'error'); });
   }
 
   window.cart = cart;
@@ -990,7 +992,7 @@ window.removeCartItem = function(cartId) {
       fetch(`${getApiBaseUrl()}/orders/cart/remove/${serverItemId}/`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
-      }).catch(() => {});
+      }).catch(err => { console.warn('[BookHaven] Cart sync failed:', err); showNotification('Cart update failed — please refresh', 'error'); });
     }
   } else {
     cart = cart.filter(i => (i.cartId && String(i.cartId) !== String(cartId)) && String(i.id) !== String(cartId));
@@ -1019,12 +1021,14 @@ function checkout() {
   const finalTotal = subtotal + shippingCost;
   const totalAmountPaise = Math.round(finalTotal * 100);
 
-  // If Razorpay SDK is available, open the official Razorpay Checkout window
-  if (typeof window.Razorpay !== 'undefined') {
+  // If Razorpay SDK is available AND a real key is configured, open Razorpay
+  const razorpayKey = window.RAZORPAY_KEY_ID || '';
+  const hasRealKey  = razorpayKey.startsWith('rzp_') && razorpayKey.length > 20;
+
+  if (typeof window.Razorpay !== 'undefined' && hasRealKey) {
     closeCart();
-    const keyId = window.RAZORPAY_KEY_ID || 'rzp_test_TaeA7VnqRyVNqD';
     const options = {
-      key: keyId,
+      key: razorpayKey,
       amount: totalAmountPaise,
       currency: 'INR',
       name: 'BookHaven',
@@ -1039,33 +1043,40 @@ function checkout() {
         address: 'BookHaven Editorial Storefront',
         order_type: 'Direct Storefront Order'
       },
-      theme: {
-        color: '#6B1D2F'
-      },
+      theme: { color: '#6B1D2F' },
       modal: {
         ondismiss: function() {
           showNotification('Payment window closed.', 'info');
         }
       },
       handler: function(response) {
-        const paymentId = response.razorpay_payment_id || ('RZP_' + Date.now());
-        processPaymentSuccess('Razorpay Online Payment', paymentId, finalTotal);
+        // Use api.js's executePaymentLogic so order is saved to backend + ordersDB
+        if (typeof window.executePaymentLogic === 'function') {
+          window.executePaymentLogic('Razorpay Online Payment');
+        } else {
+          const paymentId = response.razorpay_payment_id || ('RZP_' + Date.now());
+          processPaymentSuccess('Razorpay Online Payment', paymentId, finalTotal);
+        }
       }
     };
 
     try {
       const rzp = new window.Razorpay(options);
       rzp.on('payment.failed', function(resp) {
-        showNotification(`Payment declined: ${resp.error?.description || 'Transaction unsuccessful'}`, 'error');
+        // Payment failed inside Razorpay — fall back to internal payment modal
+        const errMsg = resp.error?.description || 'Payment unsuccessful';
+        showNotification(`Payment issue: ${errMsg}. Please try another method.`, 'error');
+        // Small delay so user can read the notification, then open payment modal
+        setTimeout(() => openPaymentModal(), 800);
       });
       rzp.open();
       return;
     } catch (err) {
-      console.warn('Razorpay window error, falling back to secure payment modal:', err);
+      console.warn('Razorpay window error, falling back to payment modal:', err);
     }
   }
 
-  // Fallback if Razorpay SDK blocked or offline
+  // Fallback: no real Razorpay key, SDK blocked, or init error — use internal modal
   closeCart();
   openPaymentModal();
 }
@@ -1371,29 +1382,13 @@ function processPayment(method) {
 
 async function processPaymentSuccess(method, txnId, total) {
   const purchasedBooks = [...cart];
-  const token = localStorage.getItem('bh_access_token');
 
-  // Sync to backend orders API
-  if (token) {
-    try {
-      await fetch(`${getApiBaseUrl()}/orders/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          payment_method: method || 'Razorpay',
-          delivery_address: 'Patron Primary Address',
-          coupon_code: ''
-        })
-      });
-    } catch (err) {
-      console.warn('Backend order recording sync warning:', err);
-    }
-  }
+  // NOTE: Backend order creation is handled by api.js's executePaymentLogic().
+  // processPaymentSuccess() is now display-only (shows the confirmation UI).
+  // Do NOT duplicate the POST /orders/checkout/ here — it causes silent failures
+  // when the backend cart is empty (e.g. guest-to-logged-in flow).
 
-  // 💾 Save order to local DB
+  // 💾 Save order to local DB for offline/fallback tracking
   saveOrderRecord(purchasedBooks, total, txnId, method);
 
   // Find eBook items in this purchase
@@ -2938,8 +2933,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (wishlistModal) wishlistModal.addEventListener('click', (e) => { if (e.target.id === 'wishlist-modal' || e.target.classList.contains('modal-backdrop')) closeWishlistModal(); });
 
   // Profile modal close
-  document.getElementById('profile-close-btn').addEventListener('click', closeProfileModal);
-  document.getElementById('profile-modal').addEventListener('click', (e) => { if (e.target.id === 'profile-modal' || e.target.classList.contains('modal-backdrop')) closeProfileModal(); });
+  const profileCloseBtn = document.getElementById('profile-close-btn');
+  if (profileCloseBtn) profileCloseBtn.addEventListener('click', closeProfileModal);
+  const profileModalEl = document.getElementById('profile-modal');
+  if (profileModalEl) profileModalEl.addEventListener('click', (e) => { if (e.target.id === 'profile-modal' || e.target.classList.contains('modal-backdrop')) closeProfileModal(); });
 
   // Lightbox close
   document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
@@ -2952,7 +2949,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Submit forms with Enter inside modal inputs
   document.querySelectorAll('.form-input').forEach(input => {
     input.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) e.target.closest('form').requestSubmit();
+      if (e.key === 'Enter' && !e.shiftKey) { const form = e.target.closest('form'); if (form) form.requestSubmit(); }
     });
   });
 

@@ -67,6 +67,9 @@ class ClerkJWTAuthentication(BaseAuthentication):
     the next authentication class (JWTAuthentication / simplejwt) to try.
     """
 
+    def authenticate_header(self, request):
+        return 'Bearer realm="api"'
+
     def authenticate(self, request):
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
         if not auth_header.startswith('Bearer '):
